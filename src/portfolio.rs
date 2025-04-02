@@ -57,7 +57,7 @@ impl Portfolio {
             engine.env("RIC3_TMP_DIR", temp_dir_path);
             engine.arg(&option.model);
             engine.arg("-v");
-            engine.arg("0");
+            engine.arg(format!("{}", option.verbose));
             for a in args {
                 engine.arg(a);
             }

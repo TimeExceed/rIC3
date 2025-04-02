@@ -18,6 +18,7 @@ use std::{
     mem::{self, transmute},
     process::exit,
     ptr,
+    sync::Arc,
 };
 
 fn main() {
@@ -76,13 +77,14 @@ fn main() {
         options.certify = false;
         aig.compress_property();
     }
-    let (aig, restore) = aig_preprocess(&aig, &options);
+    let raw_aig = Arc::new(aig);
+    let (aig, restore) = aig_preprocess(&raw_aig, &options);
     let ts = Transys::from_aig(&aig, &restore);
     if options.preprocess.sec {
         panic!("sec not support");
     }
     let mut engine: Box<dyn Engine> = match options.engine {
-        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, vec![])),
+        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, raw_aig, vec![])),
         options::Engine::Kind => Box::new(Kind::new(options.clone(), ts)),
         options::Engine::BMC => Box::new(BMC::new(options.clone(), ts)),
         _ => unreachable!(),

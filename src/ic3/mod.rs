@@ -15,10 +15,10 @@ use proofoblig::{ProofObligation, ProofObligationQueue};
 use rand::{SeedableRng, rngs::StdRng};
 use satif::Satif;
 use statistic::Statistic;
-use std::time::Instant;
+use std::{time::Instant, sync::Arc};
 
 mod activity;
-mod frame;
+pub mod frame;
 mod mic;
 mod proofoblig;
 mod solver;
@@ -44,6 +44,7 @@ pub struct IC3 {
 
     auxiliary_var: Vec<Var>,
     rng: StdRng,
+    aig: Arc<Aig>,
 }
 
 impl IC3 {
@@ -349,7 +350,7 @@ impl IC3 {
 }
 
 impl IC3 {
-    pub fn new(mut options: Options, mut ts: Transys, pre_lemmas: Vec<LitVec>) -> Self {
+    pub fn new(mut options: Options, mut ts: Transys, aig: Arc<Aig>, pre_lemmas: Vec<LitVec>) -> Self {
         ts.unique_prime();
         ts.simplify();
         let mut uts = TransysUnroll::new(&ts);
@@ -395,6 +396,7 @@ impl IC3 {
             auxiliary_var: Vec::new(),
             bmc_solver: None,
             rng,
+            aig,
         }
     }
 }
@@ -428,14 +430,14 @@ impl Engine for IC3 {
             }
             let blocked_time = start.elapsed();
             if self.options.verbose > 1 {
-                self.frame.statistic();
                 println!(
-                    "[{}:{}] frame: {}, time: {:?}",
+                    "[{}:{}] frame: {}, elapsed: {:.6}s",
                     file!(),
                     line!(),
                     self.level(),
-                    blocked_time,
+                    blocked_time.as_secs_f64(),
                 );
+                println!("{}", self.frame.display(&self.aig));
             }
             self.statistic.overall_block_time += blocked_time;
             self.extend();
