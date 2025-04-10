@@ -9,6 +9,7 @@ use activity::Activity;
 use aig::{Aig, AigEdge};
 use frame::{Frame, Frames};
 use giputils::{grc::Grc, hash::GHashMap};
+use log::*;
 use logic_form::{Lemma, LitVec, Var};
 use mic::{DropVarParameter, MicType};
 use proofoblig::{ProofObligation, ProofObligationQueue};
@@ -131,9 +132,7 @@ impl IC3 {
                             assert!(!self.abs_cst.contains(&c));
                             self.abs_cst.push(c);
                         }
-                        if self.options.verbose > 1 {
-                            println!("abs cst len: {}", self.abs_cst.len(),);
-                        }
+                        debug!("# of abstract constraints: {}", self.abs_cst.len(),);
                         self.obligations.clear();
                         for f in self.frame.iter_mut() {
                             for l in f.iter_mut() {
@@ -157,9 +156,7 @@ impl IC3 {
                 self.add_obligation(po);
                 continue;
             }
-            if self.options.verbose > 2 {
-                self.frame.statistic();
-            }
+            self.frame.statistic();
             po.bump_act();
             let blocked_start = Instant::now();
             let blocked = self.blocked_with_ordered(po.frame, &po.lemma, false, false);
@@ -429,16 +426,14 @@ impl Engine for IC3 {
                 }
             }
             let blocked_time = start.elapsed();
-            if self.options.verbose > 1 {
-                println!(
-                    "[{}:{}] frame: {}, elapsed: {:.6}s",
-                    file!(),
-                    line!(),
-                    self.level(),
-                    blocked_time.as_secs_f64(),
-                );
-                println!("{}", self.frame.display(&self.aig));
-            }
+            debug!(
+                "[{}:{}] frame: {}, elapsed: {:.6}s",
+                file!(),
+                line!(),
+                self.level(),
+                blocked_time.as_secs_f64(),
+            );
+            debug!("{}", self.frame.display(&self.aig));
             self.statistic.overall_block_time += blocked_time;
             self.extend();
             let start = Instant::now();
@@ -520,15 +515,11 @@ impl Engine for IC3 {
     fn statistic(&mut self) {
         self.statistic.num_auxiliary_var = self.auxiliary_var.len();
         self.obligations.statistic();
-        for f in self.frame.iter() {
-            print!("{} ", f.len());
-        }
-        println!();
         let mut statistic = SolverStatistic::default();
         for s in self.solvers.iter() {
             statistic += s.statistic;
         }
-        println!("{:#?}", statistic);
-        println!("{:#?}", self.statistic);
+        debug!("{:#?}", statistic);
+        debug!("{:#?}", self.statistic);
     }
 }

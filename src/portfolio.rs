@@ -1,4 +1,5 @@
 use crate::{Options, certifaiger_check};
+use log::*;
 use process_control::{ChildExt, Control};
 use std::{
     env::current_exe,
@@ -6,7 +7,7 @@ use std::{
     io::{Read, Write},
     mem::take,
     ops::{Deref, DerefMut},
-    process::{Command, Stdio, exit},
+    process::{Command, exit},
     sync::{Arc, Condvar, Mutex},
     thread::spawn,
 };
@@ -14,8 +15,15 @@ use tempfile::{NamedTempFile, TempDir};
 
 enum PortfolioState {
     Checking(usize),
-    Finished(bool, String, Option<NamedTempFile>),
+    Finished(Option<Result>),
     Terminate,
+}
+
+pub struct Result {
+    pub proved: bool,
+    pub output: Vec<u8>,
+    pub config: String,
+    pub certificate: Option<NamedTempFile>,
 }
 
 impl PortfolioState {
@@ -29,11 +37,11 @@ impl PortfolioState {
         matches!(self, Self::Checking(_))
     }
 
-    fn result(&mut self) -> (bool, String, Option<NamedTempFile>) {
-        let Self::Finished(res, config, certificate) = self else {
+    fn result(&mut self) -> Result {
+        let Self::Finished(res) = self else {
             panic!()
         };
-        (*res, config.clone(), take(certificate))
+        res.take().unwrap()
     }
 }
 
@@ -52,12 +60,16 @@ impl Portfolio {
         let temp_dir_path = temp_dir.path();
         let mut engines = Vec::new();
         let mut new_engine = |args: &str| {
-            let args = args.split(" ");
             let mut engine = Command::new(current_exe().unwrap());
-            engine.env("RIC3_TMP_DIR", temp_dir_path);
+
+            engine.env("RIC3_TMP_DIR", format!("{}", temp_dir_path.display()));
+
+            if let Ok(rust_log) = std::env::var("RUST_LOG") {
+                engine.env("RUST_LOG", rust_log);
+            }
+
             engine.arg(&option.model);
-            engine.arg("-v");
-            engine.arg(format!("{}", option.verbose));
+            let args = args.split(" ");
             for a in args {
                 engine.arg(a);
             }
@@ -67,6 +79,7 @@ impl Portfolio {
             if option.preprocess.no_abc {
                 engine.arg("--no-abc");
             }
+
             engines.push(engine);
         };
         new_engine("-e ic3");
@@ -136,43 +149,31 @@ impl Portfolio {
             } else {
                 None
             };
-            let mut child = engine.stderr(Stdio::piped()).spawn().unwrap();
+            let child = engine.spawn().unwrap();
             self.engine_pids.push(child.id() as i32);
-            let option = self.option.clone();
             let state = self.state.clone();
             spawn(move || {
-                let mut config = engine
+                let config = engine
                     .get_args()
-                    .skip(4)
+                    .skip(1)
                     .map(|cstr| cstr.to_str().unwrap())
                     .collect::<Vec<&str>>();
-                config.pop();
                 let config = config.join(" ");
-                if option.verbose > 1 {
-                    println!("start engine: {config}");
-                }
                 #[cfg(target_os = "linux")]
-                let status = child
-                    .controlled()
+                let output = child
+                    .controlled_with_output()
                     .memory_limit(1024 * 1024 * 1024 * 16)
                     .wait()
                     .unwrap()
                     .unwrap();
                 #[cfg(target_os = "macos")]
-                let status = child.controlled().wait().unwrap().unwrap();
-                let res = match status.code() {
+                let output = child.controlled_with_output().wait().unwrap().unwrap();
+                let proved = match output.status.code() {
                     Some(10) => false,
                     Some(20) => true,
-                    e => {
+                    _ => {
                         let mut ps = state.0.lock().unwrap();
                         if let PortfolioState::Checking(np) = ps.deref_mut() {
-                            if option.verbose > 0 {
-                                println!("{config} unexpectedly exited, exit code: {:?}", e);
-                                let mut stderr = String::new();
-                                child.stderr.unwrap().read_to_string(&mut stderr).unwrap();
-                                print!("stderr:");
-                                print!("{}", stderr);
-                            }
                             *np -= 1;
                             if *np == 0 {
                                 state.1.notify_one();
@@ -183,7 +184,13 @@ impl Portfolio {
                 };
                 let mut lock = state.0.lock().unwrap();
                 if lock.is_checking() {
-                    *lock = PortfolioState::Finished(res, config, certificate);
+                    let res = Result {
+                        proved,
+                        config,
+                        output: output.stdout,
+                        certificate,
+                    };
+                    *lock = PortfolioState::Finished(Some(res));
                     state.1.notify_one();
                 }
             });
@@ -191,15 +198,15 @@ impl Portfolio {
         let mut result = self.state.1.wait(lock).unwrap();
         if let PortfolioState::Checking(np) = result.deref() {
             assert!(*np == 0);
-            if self.option.verbose > 0 {
-                println!("all workers unexpectedly exited :(");
-            }
+            warn!("all workers unexpectedly exited :(");
             return None;
         }
-        let (res, config, certificate) = result.result();
+        let res = result.result();
         drop(result);
-        self.certificate = certificate;
-        println!("best configuration: {}", config);
+        self.certificate = res.certificate;
+        info!("best configuration: {}", res.config);
+        info!("One can set env var `RUST_LOG` to 'debug' for details.");
+        std::io::stdout().write_all(&res.output).unwrap();
         let pids: Vec<String> = self.engine_pids.iter().map(|p| format!("{}", *p)).collect();
         let pid = pids.join(",");
         let _ = Command::new("pkill")
@@ -212,7 +219,7 @@ impl Portfolio {
         }
         let _ = kill.output().unwrap();
         self.engine_pids.clear();
-        Some(res)
+        Some(res.proved)
     }
 
     pub fn check(&mut self) -> Option<bool> {
@@ -286,40 +293,18 @@ fn certificate(engine: &mut Portfolio, option: &Options, res: bool) {
     );
 }
 
-pub fn portfolio_main(options: Options) {
+pub fn portfolio_main(options: Options) -> Option<bool> {
     let mut engine = Portfolio::new(options.clone());
     let res = engine.check();
-    if options.verbose > 0 {
-        print!("result: ");
-    }
     match res {
         Some(true) => {
-            if options.verbose > 0 {
-                println!("safe");
-            }
-            if options.witness {
-                println!("0");
-            }
             certificate(&mut engine, &options, true)
         }
         Some(false) => {
-            if options.verbose > 0 {
-                println!("unsafe");
-            }
             certificate(&mut engine, &options, false)
         }
-        _ => {
-            if options.verbose > 0 {
-                println!("unknown");
-            }
-            if options.witness {
-                println!("2");
-            }
-        }
+        _ => (),
     }
-    if let Some(res) = res {
-        exit(if res { 20 } else { 10 })
-    } else {
-        exit(0)
-    }
+    res
 }
+

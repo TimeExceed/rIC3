@@ -7,6 +7,7 @@ mod gipsat;
 pub mod ic3;
 pub mod kind;
 pub mod options;
+mod options_display;
 pub mod portfolio;
 pub mod transys;
 
@@ -16,7 +17,7 @@ use logic_form::{Lbool, LitVec, Var};
 use options::Options;
 use std::{
     fs::File,
-    io::{self, Write},
+    io::Write,
     process::Command,
 };
 
@@ -151,10 +152,10 @@ fn certifaiger_check(option: &Options, certificate: &str) {
     if output.status.success() {
         println!("certifaiger check passed");
     } else {
-        if option.verbose > 1 {
-            io::stdout().write_all(&output.stdout).unwrap();
-            io::stderr().write_all(&output.stderr).unwrap();
-        }
+        // if option.verbose > 1 {
+        //     io::stdout().write_all(&output.stdout).unwrap();
+        //     io::stderr().write_all(&output.stderr).unwrap();
+        // }
         match output.status.code() {
             Some(1) => panic!("certifaiger check failed"),
             _ => panic!(

@@ -13,6 +13,9 @@ use rIC3::{
     portfolio::portfolio_main,
     transys::Transys,
 };
+use jiff::Timestamp;
+use log::*;
+
 use std::{
     fs,
     mem::{self, transmute},
@@ -23,16 +26,32 @@ use std::{
 
 fn main() {
     procspawn::init();
+    logforth::builder()
+        .dispatch(|d| {
+            use logforth::{filter::EnvFilter, append::Stderr};
+            d
+                .filter(EnvFilter::from_default_env_or("info"))
+                .append(Stderr::default().with_layout(MyLayout{}))
+        })
+        .apply();
+
     fs::create_dir_all("/tmp/rIC3").unwrap();
     let mut options = Options::parse();
     options.model = options.model.canonicalize().unwrap();
-    if options.verbose > 0 {
-        println!("the model to be checked: {}", options.model.display());
+    SESSION_NAME.set(format!("{options}")).unwrap();
+    let res = if let options::Engine::Portfolio = options.engine {
+        portfolio_main(options)
+    } else {
+        raw_main(options)
+    };
+    if let Some(res) = res {
+        exit(if res { 20 } else { 10 })
+    } else {
+        exit(0)
     }
-    if let options::Engine::Portfolio = options.engine {
-        portfolio_main(options);
-        unreachable!();
-    }
+}
+
+fn raw_main(mut options: Options) -> Option<bool> {
     let mut aig = match options.model.extension() {
         Some(ext) if (ext == "btor") | (ext == "btor2") => panic!(
             "rIC3 currently does not support parsing BTOR2 files. Please use btor2aiger (https://github.com/hwmcc/btor2tools) to first convert them to AIG format."
@@ -62,18 +81,16 @@ fn main() {
         if let Some(certificate) = &options.certificate {
             aig.to_file(certificate.to_str().unwrap(), true);
         }
-        exit(20);
+        return Some(true);
     } else if aig.bads.len() > 1 {
         if options.certify {
             panic!(
                 "Error: Multiple properties detected. Cannot compress properties when certification is enabled."
             );
         }
-        if options.verbose > 0 {
-            println!(
-                "Warning: Multiple properties detected. rIC3 has compressed them into a single property."
-            );
-        }
+        warn!(
+            "Warning: Multiple properties detected. rIC3 has compressed them into a single property."
+        );
         options.certify = false;
         aig.compress_property();
     }
@@ -105,41 +122,40 @@ fn main() {
         });
     }
     let res = engine.check();
-    if options.verbose > 0 {
-        engine.statistic();
-    }
-    if options.verbose > 0 {
-        print!("result: ");
-    }
+    engine.statistic();
     match res {
         Some(true) => {
-            if options.verbose > 0 {
-                println!("safe");
-            }
+            println!("result: safe");
             if options.witness {
                 println!("0");
             }
             certificate(&mut engine, &origin_aig, &options, true)
         }
         Some(false) => {
-            if options.verbose > 0 {
-                println!("unsafe");
-            }
+            println!("result: unsafe");
             certificate(&mut engine, &origin_aig, &options, false)
         }
         _ => {
-            if options.verbose > 0 {
-                println!("unknown");
-            }
+            println!("result: unknown");
             if options.witness {
                 println!("2");
             }
         }
     }
     mem::forget(engine);
-    if let Some(res) = res {
-        exit(if res { 20 } else { 10 })
-    } else {
-        exit(0)
+    res
+}
+
+#[derive(Debug)]
+struct MyLayout {}
+
+impl logforth::Layout for MyLayout {
+    fn format(&self, record: &log::Record, _: &[logforth::Diagnostic]) -> anyhow::Result<Vec<u8>> {
+        let tm = Timestamp::now();
+        let session = SESSION_NAME.get().unwrap();
+        let message = record.args();
+        Ok(format!("{tm:.3} \"{session}\": {message}").into_bytes())
     }
 }
+
+static SESSION_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();

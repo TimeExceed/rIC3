@@ -5,6 +5,7 @@ use crate::{
     witness_encode,
 };
 use aig::Aig;
+use log::*;
 use logic_form::LitVec;
 use satif::Satif;
 use std::time::Duration;
@@ -66,17 +67,13 @@ impl Engine for BMC {
                 }
                 assump.clear();
             }
-            if self.options.verbose > 0 {
-                println!("bmc depth: {k}");
-            }
+            debug!("bmc depth: {k}");
             let r = if let Some(limit) = self.options.bmc.time_limit {
                 let Some(r) = self
                     .solver
                     .solve_with_limit(&assump, Duration::from_secs(limit))
                 else {
-                    if self.options.verbose > 0 {
-                        println!("bmc solve timeout in depth {k}");
-                    }
+                    debug!("bmc solve timeout in depth {k}");
                     continue;
                 };
                 r
@@ -84,9 +81,7 @@ impl Engine for BMC {
                 self.solver.solve(&assump)
             };
             if r {
-                if self.options.verbose > 0 {
-                    println!("bmc found cex in depth {k}");
-                }
+                debug!("bmc found cex in depth {k}");
                 return Some(false);
             }
 
@@ -94,9 +89,7 @@ impl Engine for BMC {
             //     solver.add_clause(&[!self.uts.lit_next(self.uts.ts.bad, s)]);
             // }
         }
-        if self.options.verbose > 0 {
-            println!("bmc reached bound {bmc_max_k}, stopping search");
-        }
+        debug!("bmc reached bound {bmc_max_k}, stopping search");
         None
     }
 

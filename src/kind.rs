@@ -5,6 +5,7 @@ use crate::{
     witness_encode,
 };
 use aig::{Aig, AigEdge};
+use log::*;
 use logic_form::LitVec;
 use satif::Satif;
 
@@ -94,13 +95,9 @@ impl Engine for Kind {
             if !self.options.kind.no_bmc {
                 let mut assump: LitVec = self.uts.ts.init().collect();
                 assump.extend_from_slice(&self.uts.lits_next(&self.uts.ts.bad.cube(), bmc_k));
-                if self.options.verbose > 0 {
-                    println!("kind bmc depth: {bmc_k}");
-                }
+                debug!("kind bmc depth: {bmc_k}");
                 if self.solver.solve(&assump) {
-                    if self.options.verbose > 0 {
-                        println!("bmc found cex in depth {bmc_k}");
-                    }
+                    debug!("bmc found cex in depth {bmc_k}");
                     return Some(false);
                 }
             }
@@ -110,9 +107,7 @@ impl Engine for Kind {
             }
             self.uts.unroll_to(k);
             self.uts.load_trans(self.solver.as_mut(), k, true);
-            if self.options.verbose > 0 {
-                println!("kind depth: {k}");
-            }
+            debug!("kind depth: {k}");
             let res = if self.options.kind.kind_kissat {
                 for l in self.uts.lits_next(&self.uts.ts.bad.cube(), k) {
                     self.solver.add_clause(&[l]);
