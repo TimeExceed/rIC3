@@ -205,7 +205,6 @@ impl ProofObligationQueue {
     }
 
     pub fn statistic(&self) {
-        println!("{:?}", self.num);
     }
 }
 

@@ -3,6 +3,7 @@ use crate::transys::TransysCtx;
 use aig::*;
 use giputils::grc::Grc;
 use giputils::hash::GHashSet;
+use log::*;
 use logic_form::{Lemma, Lit, LitSet, LitVec};
 use satif::Satif;
 use std::ops::{Deref, DerefMut};
@@ -245,11 +246,6 @@ impl Frames {
 
     #[inline]
     pub fn statistic(&self) {
-        print!("frame lengthes: ");
-        for f in self.frames.iter() {
-            print!("{} ", f.len());
-        }
-        println!();
     }
 }
 
@@ -306,9 +302,7 @@ impl IC3 {
         po: Option<ProofObligation>,
     ) -> bool {
         let lemma = Lemma::new(lemma);
-        if self.options.verbose > 5 {
-            println!("add lemma: frame:{frame}, {}", lemma);
-        }
+        debug!("add lemma: frame:{frame}, {}", lemma);
         if frame == 0 {
             assert!(self.frame.len() == 1);
             self.solvers[0].add_lemma(&!lemma.cube());
