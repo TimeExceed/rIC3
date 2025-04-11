@@ -55,9 +55,23 @@ pub(crate) struct FrameLemmaDisplay<'a> {
 
 impl std::fmt::Display for FrameLemmaDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for lit in self.frame_lemma.lemma.iter() {
+        write!(f, "{}", LemmaDisplay {
+            lemma: &self.frame_lemma.lemma,
+            aig: self.aig,
+        })
+    }
+}
+
+pub(crate) struct LemmaDisplay<'a> {
+    pub(crate) lemma: &'a Lemma,
+    pub(crate) aig: &'a Aig,
+}
+
+impl std::fmt::Display for LemmaDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for lit in self.lemma.iter() {
             writeln!(f)?;
-            write!(f, "    {}", LitDisplay { lit, aig: self.aig})?;
+            write!(f, "    {}", LitDisplay { lit, aig: self.aig })?;
         }
         Ok(())
     }

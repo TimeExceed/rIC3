@@ -3,7 +3,6 @@ use crate::{
     gipsat::{Solver, SolverStatistic},
     options::Options,
     transys::{Transys, TransysCtx, TransysIf, unroll::TransysUnroll},
-    witness_encode,
 };
 use activity::Activity;
 use aig::{Aig, AigEdge};
@@ -473,43 +472,71 @@ impl Engine for IC3 {
     }
 
     fn witness(&mut self, aig: &Aig) -> String {
-        let mut res: Vec<LitVec> = vec![LitVec::new()];
-        if let Some((bmc_solver, uts)) = self.bmc_solver.as_mut() {
-            let mut wit = vec![LitVec::new()];
-            for l in uts.ts.latchs.iter() {
-                let l = l.lit();
-                if let Some(v) = bmc_solver.sat_value(l) {
-                    wit[0].push(uts.ts.restore(l.not_if(!v)));
+        // let mut res: Vec<LitVec> = vec![LitVec::new()];
+        // if let Some((bmc_solver, uts)) = self.bmc_solver.as_mut() {
+        //     let mut wit = vec![LitVec::new()];
+        //     for l in uts.ts.latchs.iter() {
+        //         let l = l.lit();
+        //         if let Some(v) = bmc_solver.sat_value(l) {
+        //             wit[0].push(uts.ts.restore(l.not_if(!v)));
+        //         }
+        //     }
+        //     for k in 0..=uts.num_unroll {
+        //         let mut w = LitVec::new();
+        //         for l in uts.ts.inputs.iter() {
+        //             let l = l.lit();
+        //             let kl = uts.lit_next(l, k);
+        //             if let Some(v) = bmc_solver.sat_value(kl) {
+        //                 w.push(uts.ts.restore(l.not_if(!v)));
+        //             }
+        //         }
+        //         wit.push(w);
+        //     }
+        //     return witness_encode(aig, &wit);
+        // }
+        // let b = self.obligations.peak().unwrap();
+        // assert!(b.frame == 0);
+        // for &l in b.lemma.iter() {
+        //     if let Some(v) = self.solvers[0].sat_value(l) {
+        //         res[0].push(self.ts.restore(l.not_if(!v)));
+        //     }
+        // }
+        // let mut b = Some(b);
+        // while let Some(bad) = b {
+        //     for i in bad.input.iter() {
+        //         res.push(i.iter().map(|l| self.ts.restore(*l)).collect());
+        //     }
+        //     b = bad.next.clone();
+        // }
+        // witness_encode(aig, &res)
+        use std::fmt::Write;
+        let mut res = String::new();
+        let mut bad = self.obligations.peak();
+        if let Some(mut b) = bad {
+            writeln!(&mut res, "Frame 0:").unwrap();
+            for lit in b.lemma.iter() {
+                writeln!(&mut res, "  {}", frame::LitDisplay {
+                    lit,
+                    aig,
+                }).unwrap();
+            }
+            bad = b.next.take();
+        }
+        let mut cnt = 1usize;
+        while let Some(mut b) = bad {
+            for inp in b.input.iter() {
+                writeln!(&mut res, "Frame {cnt}:").unwrap();
+                cnt += 1;
+                for lit in inp.iter() {
+                    writeln!(&mut res, "  {}", frame::LitDisplay {
+                        lit,
+                        aig,
+                    }).unwrap();
                 }
             }
-            for k in 0..=uts.num_unroll {
-                let mut w = LitVec::new();
-                for l in uts.ts.inputs.iter() {
-                    let l = l.lit();
-                    let kl = uts.lit_next(l, k);
-                    if let Some(v) = bmc_solver.sat_value(kl) {
-                        w.push(uts.ts.restore(l.not_if(!v)));
-                    }
-                }
-                wit.push(w);
-            }
-            return witness_encode(aig, &wit);
+            bad = b.next.take();
         }
-        let b = self.obligations.peak().unwrap();
-        assert!(b.frame == 0);
-        for &l in b.lemma.iter() {
-            if let Some(v) = self.solvers[0].sat_value(l) {
-                res[0].push(self.ts.restore(l.not_if(!v)));
-            }
-        }
-        let mut b = Some(b);
-        while let Some(bad) = b {
-            for i in bad.input.iter() {
-                res.push(i.iter().map(|l| self.ts.restore(*l)).collect());
-            }
-            b = bad.next.clone();
-        }
-        witness_encode(aig, &res)
+        res
     }
 
     fn statistic(&mut self) {

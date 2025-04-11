@@ -5,7 +5,6 @@ use clap::Parser;
 use rIC3::{
     Engine,
     bmc::BMC,
-    certificate,
     frontend::aig::aig_preprocess,
     ic3::IC3,
     kind::Kind,
@@ -127,19 +126,19 @@ fn raw_main(mut options: Options) -> Option<bool> {
         Some(true) => {
             println!("result: safe");
             if options.witness {
-                println!("0");
+                println!("{}", engine.witness(&origin_aig));
             }
-            certificate(&mut engine, &origin_aig, &options, true)
+            // certificate(&mut engine, &origin_aig, &options, true)
         }
         Some(false) => {
             println!("result: unsafe");
-            certificate(&mut engine, &origin_aig, &options, false)
+            if options.witness {
+                println!("{}", engine.witness(&origin_aig));
+            }
+            // certificate(&mut engine, &origin_aig, &options, false)
         }
         _ => {
             println!("result: unknown");
-            if options.witness {
-                println!("2");
-            }
         }
     }
     mem::forget(engine);
