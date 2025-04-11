@@ -44,7 +44,7 @@ pub struct IC3 {
 
     auxiliary_var: Vec<Var>,
     rng: StdRng,
-    aig: Arc<Aig>,
+    symbs: GHashMap<Var, String>,
 }
 
 impl IC3 {
@@ -328,6 +328,18 @@ impl IC3 {
             let bad = self.ts.bad;
             if base.solve(&bad.cube()) {
                 let (bad, inputs) = self.lift.get_pred(&base, &bad.cube(), true);
+                debug!("base has a counterexample.\
+                    \n  bad: {}\
+                    \n  inputs: {}",
+                    frame::LitVecDispaly {
+                        lits: &bad,
+                        symbs: &self.symbs,
+                    },
+                    frame::LitVecDispaly {
+                        lits: &inputs,
+                        symbs: &self.symbs,
+                    },
+                );
                 self.add_obligation(ProofObligation::new(
                     0,
                     Lemma::new(bad),
@@ -341,12 +353,21 @@ impl IC3 {
             self.lift = Solver::new(self.options.clone(), None, &self.ts);
         }
         self.extend();
+        debug!("base has no counterexample.\
+            \n  # of pob: {}",
+            self.obligations.len(),
+        );
         true
     }
 }
 
 impl IC3 {
-    pub fn new(mut options: Options, mut ts: Transys, aig: Arc<Aig>, pre_lemmas: Vec<LitVec>) -> Self {
+    pub fn new(
+        mut options: Options,
+        mut ts: Transys,
+        symbs: GHashMap<Var, String>,
+        pre_lemmas: Vec<LitVec>,
+    ) -> Self {
         ts.unique_prime();
         ts.simplify();
         let mut uts = TransysUnroll::new(&ts);
@@ -392,7 +413,7 @@ impl IC3 {
             auxiliary_var: Vec::new(),
             bmc_solver: None,
             rng,
-            aig,
+            symbs,
         }
     }
 }
@@ -405,13 +426,14 @@ impl Engine for IC3 {
         loop {
             let start = Instant::now();
             loop {
-                match self.block() {
+                let block_res = self.block();
+                self.statistic.overall_block_time += start.elapsed();
+                debug!("# of pob: {}", self.obligations.len());
+                match block_res {
                     Some(false) => {
-                        self.statistic.overall_block_time += start.elapsed();
                         return Some(false);
                     }
                     None => {
-                        self.statistic.overall_block_time += start.elapsed();
                         self.verify();
                         return Some(true);
                     }
@@ -424,20 +446,13 @@ impl Engine for IC3 {
                     break;
                 }
             }
-            let blocked_time = start.elapsed();
-            debug!(
-                "[{}:{}] frame: {}, elapsed: {:.6}s",
-                file!(),
-                line!(),
-                self.level(),
-                blocked_time.as_secs_f64(),
-            );
-            debug!("{}", self.frame.display(&self.aig));
-            self.statistic.overall_block_time += blocked_time;
+            debug!("{}", self.frame.display(&self.symbs));
             self.extend();
+            debug!("# of pob: {}", self.obligations.len());
             let start = Instant::now();
             let propagate = self.propagate(None);
             self.statistic.overall_propagate_time += start.elapsed();
+            debug!("# of pob: {}", self.obligations.len());
             if propagate {
                 self.verify();
                 return Some(true);
@@ -471,7 +486,7 @@ impl Engine for IC3 {
         certifaiger
     }
 
-    fn witness(&mut self, aig: &Aig) -> String {
+    fn witness(&mut self, _: &Aig) -> String {
         // let mut res: Vec<LitVec> = vec![LitVec::new()];
         // if let Some((bmc_solver, uts)) = self.bmc_solver.as_mut() {
         //     let mut wit = vec![LitVec::new()];
@@ -517,7 +532,7 @@ impl Engine for IC3 {
             for lit in b.lemma.iter() {
                 writeln!(&mut res, "  {}", frame::LitDisplay {
                     lit,
-                    aig,
+                    symbs: &self.symbs,
                 }).unwrap();
             }
             bad = b.next.take();
@@ -530,7 +545,7 @@ impl Engine for IC3 {
                 for lit in inp.iter() {
                     writeln!(&mut res, "  {}", frame::LitDisplay {
                         lit,
-                        aig,
+                        symbs: &self.symbs,
                     }).unwrap();
                 }
             }

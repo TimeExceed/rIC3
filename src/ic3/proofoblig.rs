@@ -206,6 +206,10 @@ impl ProofObligationQueue {
 
     pub fn statistic(&self) {
     }
+
+    pub fn len(&self) -> usize {
+        self.obligations.len()
+    }
 }
 
 impl IC3 {
