@@ -5,7 +5,6 @@ use clap::Parser;
 use rIC3::{
     Engine,
     bmc::BMC,
-    certificate,
     frontend::aig::aig_preprocess,
     ic3::IC3,
     kind::Kind,
@@ -15,6 +14,8 @@ use rIC3::{
 };
 use jiff::Timestamp;
 use log::*;
+use giputils::hash::GHashMap;
+use logic_form::*;
 
 use std::{
     fs,
@@ -94,14 +95,15 @@ fn raw_main(mut options: Options) -> Option<bool> {
         options.certify = false;
         aig.compress_property();
     }
-    let raw_aig = Arc::new(aig);
+    let raw_aig = &aig;
     let (aig, restore) = aig_preprocess(&raw_aig, &options);
+    let symbs = build_symbols(&raw_aig, &restore);
     let ts = Transys::from_aig(&aig, &restore);
     if options.preprocess.sec {
         panic!("sec not support");
     }
     let mut engine: Box<dyn Engine> = match options.engine {
-        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, raw_aig, vec![])),
+        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, symbs, vec![])),
         options::Engine::Kind => Box::new(Kind::new(options.clone(), ts)),
         options::Engine::BMC => Box::new(BMC::new(options.clone(), ts)),
         _ => unreachable!(),
@@ -127,19 +129,19 @@ fn raw_main(mut options: Options) -> Option<bool> {
         Some(true) => {
             println!("result: safe");
             if options.witness {
-                println!("0");
+                println!("{}", engine.witness(&origin_aig));
             }
-            certificate(&mut engine, &origin_aig, &options, true)
+            // certificate(&mut engine, &origin_aig, &options, true)
         }
         Some(false) => {
             println!("result: unsafe");
-            certificate(&mut engine, &origin_aig, &options, false)
+            if options.witness {
+                println!("{}", engine.witness(&origin_aig));
+            }
+            // certificate(&mut engine, &origin_aig, &options, false)
         }
         _ => {
             println!("result: unknown");
-            if options.witness {
-                println!("2");
-            }
         }
     }
     mem::forget(engine);
@@ -154,8 +156,35 @@ impl logforth::Layout for MyLayout {
         let tm = Timestamp::now();
         let session = SESSION_NAME.get().unwrap();
         let message = record.args();
-        Ok(format!("{tm:.3} \"{session}\": {message}").into_bytes())
+        let res = format!(
+            "{tm:.3} \"{session}\": [{}:{}] {message}",
+            if let Some(f) = record.file() {
+                f
+            } else {
+                ""
+            },
+            if let Some(l) = record.line() {
+                l
+            } else {
+                0
+            },
+        );
+
+        Ok(res.into_bytes())
     }
 }
 
 static SESSION_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn build_symbols(aig: &Aig, var_map: &GHashMap<Var, Var>) -> GHashMap<Var, String> {
+    let raw_symbs = &aig.symbols;
+    let mut res = GHashMap::new();
+    for (new_var, old_var) in var_map.iter() {
+        let old_var: usize = (*old_var).into();
+        if let Some(n) = raw_symbs.get(&old_var) {
+            res.insert(*new_var, n.clone());
+        }
+    }
+    res
+}
+

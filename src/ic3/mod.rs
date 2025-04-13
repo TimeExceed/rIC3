@@ -3,7 +3,6 @@ use crate::{
     gipsat::{Solver, SolverStatistic},
     options::Options,
     transys::{Transys, TransysCtx, TransysIf, unroll::TransysUnroll},
-    witness_encode,
 };
 use activity::Activity;
 use aig::{Aig, AigEdge};
@@ -45,7 +44,7 @@ pub struct IC3 {
 
     auxiliary_var: Vec<Var>,
     rng: StdRng,
-    aig: Arc<Aig>,
+    symbs: GHashMap<Var, String>,
 }
 
 impl IC3 {
@@ -329,6 +328,18 @@ impl IC3 {
             let bad = self.ts.bad;
             if base.solve(&bad.cube()) {
                 let (bad, inputs) = self.lift.get_pred(&base, &bad.cube(), true);
+                debug!("base has a counterexample.\
+                    \n  bad: {}\
+                    \n  inputs: {}",
+                    frame::LitVecDispaly {
+                        lits: &bad,
+                        symbs: &self.symbs,
+                    },
+                    frame::LitVecDispaly {
+                        lits: &inputs,
+                        symbs: &self.symbs,
+                    },
+                );
                 self.add_obligation(ProofObligation::new(
                     0,
                     Lemma::new(bad),
@@ -342,12 +353,21 @@ impl IC3 {
             self.lift = Solver::new(self.options.clone(), None, &self.ts);
         }
         self.extend();
+        debug!("base has no counterexample.\
+            \n  # of pob: {}",
+            self.obligations.len(),
+        );
         true
     }
 }
 
 impl IC3 {
-    pub fn new(mut options: Options, mut ts: Transys, aig: Arc<Aig>, pre_lemmas: Vec<LitVec>) -> Self {
+    pub fn new(
+        mut options: Options,
+        mut ts: Transys,
+        symbs: GHashMap<Var, String>,
+        pre_lemmas: Vec<LitVec>,
+    ) -> Self {
         ts.unique_prime();
         ts.simplify();
         let mut uts = TransysUnroll::new(&ts);
@@ -393,7 +413,7 @@ impl IC3 {
             auxiliary_var: Vec::new(),
             bmc_solver: None,
             rng,
-            aig,
+            symbs,
         }
     }
 }
@@ -406,13 +426,14 @@ impl Engine for IC3 {
         loop {
             let start = Instant::now();
             loop {
-                match self.block() {
+                let block_res = self.block();
+                self.statistic.overall_block_time += start.elapsed();
+                debug!("# of pob: {}", self.obligations.len());
+                match block_res {
                     Some(false) => {
-                        self.statistic.overall_block_time += start.elapsed();
                         return Some(false);
                     }
                     None => {
-                        self.statistic.overall_block_time += start.elapsed();
                         self.verify();
                         return Some(true);
                     }
@@ -425,20 +446,13 @@ impl Engine for IC3 {
                     break;
                 }
             }
-            let blocked_time = start.elapsed();
-            debug!(
-                "[{}:{}] frame: {}, elapsed: {:.6}s",
-                file!(),
-                line!(),
-                self.level(),
-                blocked_time.as_secs_f64(),
-            );
-            debug!("{}", self.frame.display(&self.aig));
-            self.statistic.overall_block_time += blocked_time;
+            debug!("{}", self.frame.display(&self.symbs));
             self.extend();
+            debug!("# of pob: {}", self.obligations.len());
             let start = Instant::now();
             let propagate = self.propagate(None);
             self.statistic.overall_propagate_time += start.elapsed();
+            debug!("# of pob: {}", self.obligations.len());
             if propagate {
                 self.verify();
                 return Some(true);
@@ -472,44 +486,72 @@ impl Engine for IC3 {
         certifaiger
     }
 
-    fn witness(&mut self, aig: &Aig) -> String {
-        let mut res: Vec<LitVec> = vec![LitVec::new()];
-        if let Some((bmc_solver, uts)) = self.bmc_solver.as_mut() {
-            let mut wit = vec![LitVec::new()];
-            for l in uts.ts.latchs.iter() {
-                let l = l.lit();
-                if let Some(v) = bmc_solver.sat_value(l) {
-                    wit[0].push(uts.ts.restore(l.not_if(!v)));
+    fn witness(&mut self, _: &Aig) -> String {
+        // let mut res: Vec<LitVec> = vec![LitVec::new()];
+        // if let Some((bmc_solver, uts)) = self.bmc_solver.as_mut() {
+        //     let mut wit = vec![LitVec::new()];
+        //     for l in uts.ts.latchs.iter() {
+        //         let l = l.lit();
+        //         if let Some(v) = bmc_solver.sat_value(l) {
+        //             wit[0].push(uts.ts.restore(l.not_if(!v)));
+        //         }
+        //     }
+        //     for k in 0..=uts.num_unroll {
+        //         let mut w = LitVec::new();
+        //         for l in uts.ts.inputs.iter() {
+        //             let l = l.lit();
+        //             let kl = uts.lit_next(l, k);
+        //             if let Some(v) = bmc_solver.sat_value(kl) {
+        //                 w.push(uts.ts.restore(l.not_if(!v)));
+        //             }
+        //         }
+        //         wit.push(w);
+        //     }
+        //     return witness_encode(aig, &wit);
+        // }
+        // let b = self.obligations.peak().unwrap();
+        // assert!(b.frame == 0);
+        // for &l in b.lemma.iter() {
+        //     if let Some(v) = self.solvers[0].sat_value(l) {
+        //         res[0].push(self.ts.restore(l.not_if(!v)));
+        //     }
+        // }
+        // let mut b = Some(b);
+        // while let Some(bad) = b {
+        //     for i in bad.input.iter() {
+        //         res.push(i.iter().map(|l| self.ts.restore(*l)).collect());
+        //     }
+        //     b = bad.next.clone();
+        // }
+        // witness_encode(aig, &res)
+        use std::fmt::Write;
+        let mut res = String::new();
+        let mut bad = self.obligations.peak();
+        if let Some(mut b) = bad {
+            writeln!(&mut res, "Frame 0:").unwrap();
+            for lit in b.lemma.iter() {
+                writeln!(&mut res, "  {}", frame::LitDisplay {
+                    lit,
+                    symbs: &self.symbs,
+                }).unwrap();
+            }
+            bad = b.next.take();
+        }
+        let mut cnt = 1usize;
+        while let Some(mut b) = bad {
+            for inp in b.input.iter() {
+                writeln!(&mut res, "Frame {cnt}:").unwrap();
+                cnt += 1;
+                for lit in inp.iter() {
+                    writeln!(&mut res, "  {}", frame::LitDisplay {
+                        lit,
+                        symbs: &self.symbs,
+                    }).unwrap();
                 }
             }
-            for k in 0..=uts.num_unroll {
-                let mut w = LitVec::new();
-                for l in uts.ts.inputs.iter() {
-                    let l = l.lit();
-                    let kl = uts.lit_next(l, k);
-                    if let Some(v) = bmc_solver.sat_value(kl) {
-                        w.push(uts.ts.restore(l.not_if(!v)));
-                    }
-                }
-                wit.push(w);
-            }
-            return witness_encode(aig, &wit);
+            bad = b.next.take();
         }
-        let b = self.obligations.peak().unwrap();
-        assert!(b.frame == 0);
-        for &l in b.lemma.iter() {
-            if let Some(v) = self.solvers[0].sat_value(l) {
-                res[0].push(self.ts.restore(l.not_if(!v)));
-            }
-        }
-        let mut b = Some(b);
-        while let Some(bad) = b {
-            for i in bad.input.iter() {
-                res.push(i.iter().map(|l| self.ts.restore(*l)).collect());
-            }
-            b = bad.next.clone();
-        }
-        witness_encode(aig, &res)
+        res
     }
 
     fn statistic(&mut self) {
