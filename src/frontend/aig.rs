@@ -1,10 +1,11 @@
-use super::abc::abc_preprocess;
 use crate::options;
 use aig::Aig;
-use giputils::hash::{GHashMap, GHashSet};
+use giputils::hash::GHashMap;
 use logic_form::Var;
 
 pub fn aig_preprocess(aig: &Aig, options: &options::Options) -> (Aig, GHashMap<Var, Var>) {
+    use giputils::hash::GHashSet;
+    use super::abc::abc_preprocess;
     let (mut aig, mut remap) = aig.coi_refine();
     if !(options.preprocess.no_abc
         || matches!(options.engine, options::Engine::IC3) && options.ic3.inn)
