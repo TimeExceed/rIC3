@@ -152,6 +152,7 @@ impl Portfolio {
             let child = engine.spawn().unwrap();
             self.engine_pids.push(child.id() as i32);
             let state = self.state.clone();
+            let timeout = self.option.timeout.clone();
             spawn(move || {
                 let config = engine
                     .get_args()
@@ -160,45 +161,55 @@ impl Portfolio {
                     .collect::<Vec<&str>>();
                 let config = config.join(" ");
                 #[cfg(target_os = "linux")]
-                let output = child
-                    .controlled_with_output()
-                    .memory_limit(1024 * 1024 * 1024 * 16)
-                    .wait()
-                    .unwrap()
-                    .unwrap();
+                let output = {
+                    let child = child
+                        .controlled_with_output()
+                        .memory_limit(1024 * 1024 * 1024 * 16);
+                    let child = if let Some(dur) = timeout {
+                        let dur = std::time::Duration::try_from(dur).unwrap();
+                        child.time_limit(dur)
+                            .terminate_for_timeout()
+                    } else {
+                        child
+                    };
+                    child.wait()
+                        .unwrap()
+                };
                 #[cfg(target_os = "macos")]
-                let output = child.controlled_with_output().wait().unwrap().unwrap();
-                let proved = match output.status.code() {
-                    Some(10) => false,
-                    Some(20) => true,
-                    _ => {
-                        let mut ps = state.0.lock().unwrap();
-                        if let PortfolioState::Checking(np) = ps.deref_mut() {
-                            *np -= 1;
-                            if *np == 0 {
+                let output = child.controlled_with_output().wait().unwrap();
+                if let Some(output) = output {
+                    match output.status.code() {
+                        Some(x) if x == 10 || x == 20 => {
+                            let proved = x == 20;
+                            let mut lock = state.0.lock().unwrap();
+                            if lock.is_checking() {
+                                let res = Result {
+                                    proved,
+                                    config,
+                                    output: output.stdout,
+                                    certificate,
+                                };
+                                *lock = PortfolioState::Finished(Some(res));
                                 state.1.notify_one();
                             }
+                            return;
                         }
-                        return;
+                        _ => ()
                     }
-                };
-                let mut lock = state.0.lock().unwrap();
-                if lock.is_checking() {
-                    let res = Result {
-                        proved,
-                        config,
-                        output: output.stdout,
-                        certificate,
-                    };
-                    *lock = PortfolioState::Finished(Some(res));
-                    state.1.notify_one();
+                }
+                let mut ps = state.0.lock().unwrap();
+                if let PortfolioState::Checking(np) = ps.deref_mut() {
+                    *np -= 1;
+                    if *np == 0 {
+                        state.1.notify_one();
+                    }
                 }
             });
         }
         let mut result = self.state.1.wait(lock).unwrap();
         if let PortfolioState::Checking(np) = result.deref() {
             assert!(*np == 0);
-            warn!("all workers unexpectedly exited :(");
+            info!("All workers exited without results. Probably they are timed out.");
             return None;
         }
         let res = result.result();

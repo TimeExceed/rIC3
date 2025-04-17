@@ -54,6 +54,12 @@ pub struct Options {
     /// interrupt statistic
     #[arg(long, default_value_t = false)]
     pub interrupt_statistic: bool,
+
+    /// time limit, in ISO-8601 friendly format,
+    /// e.g., `1h` for an hour, `15m` for 15 minutes, and `1m30s` for 1 minute and 30 seconds.
+    /// By default, no limit at all.
+    #[arg(long="timeout")]
+    pub timeout: Option<jiff::Span>,
 }
 
 #[derive(Copy, Clone, ValueEnum, Debug)]

@@ -15,7 +15,7 @@ use proofoblig::{ProofObligation, ProofObligationQueue};
 use rand::{SeedableRng, rngs::StdRng};
 use satif::Satif;
 use statistic::Statistic;
-use std::{time::Instant, sync::Arc};
+use std::time::Instant;
 
 mod activity;
 pub mod frame;

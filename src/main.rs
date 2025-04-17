@@ -22,7 +22,6 @@ use std::{
     mem::{self, transmute},
     process::exit,
     ptr,
-    sync::Arc,
 };
 
 fn main() {
