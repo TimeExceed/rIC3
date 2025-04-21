@@ -84,8 +84,11 @@ impl IC3 {
                 }
             }
             cst.retain(|l| !self.abs_cst.contains(l));
-            assert!(!cst.is_empty());
-            Some(cst)
+            if cst.is_empty() {
+                None
+            } else {
+                Some(cst)
+            }
         }
     }
 }
