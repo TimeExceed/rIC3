@@ -524,34 +524,83 @@ impl Engine for IC3 {
         //     b = bad.next.clone();
         // }
         // witness_encode(aig, &res)
-        use std::fmt::Write;
-        let mut res = String::new();
-        let mut bad = self.obligations.peak();
-        if let Some(mut b) = bad {
-            writeln!(&mut res, "Frame 0:").unwrap();
-            for lit in b.lemma.iter() {
-                writeln!(&mut res, "  {}", frame::LitDisplay {
-                    lit,
-                    symbs: &self.symbs,
-                }).unwrap();
+        if self.options.json_output {
+            use serde::Serialize;
+
+            #[derive(Serialize)]
+            struct JsonAssign {
+                name: String,
+                value: bool,
             }
-            bad = b.next.take();
-        }
-        let mut cnt = 1usize;
-        while let Some(mut b) = bad {
-            for inp in b.input.iter() {
-                writeln!(&mut res, "Frame {cnt}:").unwrap();
-                cnt += 1;
-                for lit in inp.iter() {
+
+            let res = {
+                let symbs = &self.symbs;
+                let mut witness = vec![];
+                let mut bad = self.obligations.peak();
+                if let Some(mut b) = bad {
+                    let frame: Vec<_> = b.lemma.iter()
+                        .map(|lit| {
+                            let var = lit.var();
+                            let name = symbs.get(&var).cloned().unwrap_or_else(|| format!("{{{}}}", var));
+                            JsonAssign {
+                                name,
+                                value: lit.polarity(),
+                            }
+                        })
+                        .collect();
+                    witness.push(frame);
+                    bad = b.next.take();
+                }
+                while let Some(mut b) = bad {
+                    for inp in b.input.iter() {
+                        let frame: Vec<_> = inp.iter()
+                            .map(|lit| {
+                                let var = lit.var();
+                                let name = symbs.get(&var).cloned().unwrap_or_else(|| format!("{{{}}}", var));
+                                JsonAssign {
+                                    name,
+                                    value: lit.polarity(),
+                                }
+                            })
+                            .collect();
+                        witness.push(frame);
+                    }
+                    bad = b.next.take();
+                }
+
+                witness
+            };
+            serde_json::to_string(&res).unwrap()
+        } else {
+            use std::fmt::Write;
+            let mut res = String::new();
+            let mut bad = self.obligations.peak();
+            if let Some(mut b) = bad {
+                writeln!(&mut res, "Frame 0:").unwrap();
+                for lit in b.lemma.iter() {
                     writeln!(&mut res, "  {}", frame::LitDisplay {
                         lit,
                         symbs: &self.symbs,
                     }).unwrap();
                 }
+                bad = b.next.take();
             }
-            bad = b.next.take();
+            let mut cnt = 1usize;
+            while let Some(mut b) = bad {
+                for inp in b.input.iter() {
+                    writeln!(&mut res, "Frame {cnt}:").unwrap();
+                    cnt += 1;
+                    for lit in inp.iter() {
+                        writeln!(&mut res, "  {}", frame::LitDisplay {
+                            lit,
+                            symbs: &self.symbs,
+                        }).unwrap();
+                    }
+                }
+                bad = b.next.take();
+            }
+            res
         }
-        res
     }
 
     fn statistic(&mut self) {
