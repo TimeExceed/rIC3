@@ -25,7 +25,6 @@ use std::{
 };
 
 fn main() {
-    procspawn::init();
     logforth::builder()
         .dispatch(|d| {
             use logforth::{filter::EnvFilter, append::Stderr};
