@@ -7,7 +7,7 @@ use std::{
     io::{Read, Write},
     mem::take,
     ops::{Deref, DerefMut},
-    process::{Command, exit},
+    process::{Command, exit, Stdio},
     sync::{Arc, Condvar, Mutex},
     thread::spawn,
 };
@@ -138,9 +138,14 @@ impl Portfolio {
     fn check_inner(&mut self) -> Option<bool> {
         let lock = self.state.0.lock().unwrap();
         for mut engine in take(&mut self.engines) {
+            let config = engine
+                .get_args()
+                .skip(1)
+                .map(|cstr| cstr.to_str().unwrap())
+                .collect::<Vec<&str>>()
+                .join(" ");
             let certificate = if self.option.certificate.is_some()
                 || self.option.certify
-                || self.option.witness
             {
                 let certificate = tempfile::NamedTempFile::new_in(self.temp_dir.path()).unwrap();
                 let certify_path = certificate.path().as_os_str().to_str().unwrap();
@@ -149,17 +154,16 @@ impl Portfolio {
             } else {
                 None
             };
-            let child = engine.spawn().unwrap();
+            let child = {
+                if self.option.json_output {
+                    engine.arg("--json-output");
+                }
+                engine.stdout(Stdio::piped()).spawn().unwrap()
+            };
             self.engine_pids.push(child.id() as i32);
             let state = self.state.clone();
             let timeout = self.option.timeout.clone();
             spawn(move || {
-                let config = engine
-                    .get_args()
-                    .skip(1)
-                    .map(|cstr| cstr.to_str().unwrap())
-                    .collect::<Vec<&str>>();
-                let config = config.join(" ");
                 #[cfg(target_os = "linux")]
                 let output = {
                     let child = child
@@ -263,7 +267,7 @@ fn certificate(engine: &mut Portfolio, option: &Options, res: bool) {
             std::fs::copy(engine.certificate.as_ref().unwrap(), certificate_path).unwrap();
         }
     } else {
-        if option.certificate.is_none() && !option.certify && !option.witness {
+        if option.certificate.is_none() && !option.certify {
             return;
         }
         let mut witness = String::new();
@@ -280,9 +284,6 @@ fn certificate(engine: &mut Portfolio, option: &Options, res: bool) {
         .unwrap()
         .read_to_string(&mut witness)
         .unwrap();
-        if option.witness {
-            println!("{}", witness);
-        }
         if let Some(certificate_path) = &option.certificate {
             let mut file: File = File::create(certificate_path).unwrap();
             file.write_all(witness.as_bytes()).unwrap();

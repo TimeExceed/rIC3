@@ -11,6 +11,7 @@ use rIC3::{
     options::{self, Options},
     portfolio::portfolio_main,
     transys::Transys,
+    certificate,
 };
 use jiff::Timestamp;
 use log::*;
@@ -125,18 +126,19 @@ fn raw_main(mut options: Options) -> Option<bool> {
     engine.statistic();
     match res {
         Some(true) => {
-            println!("result: safe");
-            if options.witness {
-                println!("{}", engine.witness(&origin_aig));
+            if !options.json_output {
+                println!("result: safe");
             }
-            // certificate(&mut engine, &origin_aig, &options, true)
+            certificate(&mut engine, &aig, &options, true);
         }
         Some(false) => {
-            println!("result: unsafe");
-            if options.witness {
+            if options.json_output {
+                println!("{}", engine.witness(&origin_aig));
+            } else {
+                println!("result: unsafe");
                 println!("{}", engine.witness(&origin_aig));
             }
-            // certificate(&mut engine, &origin_aig, &options, false)
+            certificate(&mut engine, &aig, &options, false);
         }
         _ => {
             println!("result: unknown");

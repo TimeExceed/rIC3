@@ -27,10 +27,6 @@ pub struct Options {
     #[arg(long, default_value_t = false)]
     pub certify: bool,
 
-    /// print witness when model is unsafe
-    #[arg(long, default_value_t = false)]
-    pub witness: bool,
-
     #[command(flatten)]
     pub ic3: IC3Options,
 
@@ -60,6 +56,10 @@ pub struct Options {
     /// By default, no limit at all.
     #[arg(long="timeout")]
     pub timeout: Option<jiff::Span>,
+
+    /// outputs in json format.
+    #[arg(long="json-output")]
+    pub json_output: bool,
 }
 
 #[derive(Copy, Clone, ValueEnum, Debug)]

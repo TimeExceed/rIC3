@@ -109,13 +109,10 @@ pub fn certificate(engine: &mut Box<dyn Engine>, aig: &Aig, option: &Options, re
         certifaiger.to_file(certificate_path, true);
         certifaiger_check(option, certificate_path);
     } else {
-        if option.certificate.is_none() && !option.certify && !option.witness {
+        if option.certificate.is_none() && !option.certify {
             return;
         }
         let witness = engine.witness(aig);
-        if option.witness {
-            println!("{}", witness);
-        }
         if let Some(certificate_path) = &option.certificate {
             let mut file: File = File::create(certificate_path).unwrap();
             file.write_all(witness.as_bytes()).unwrap();
