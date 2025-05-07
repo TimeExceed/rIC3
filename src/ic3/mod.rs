@@ -44,7 +44,7 @@ pub struct IC3 {
 
     auxiliary_var: Vec<Var>,
     rng: StdRng,
-    symbs: GHashMap<Var, String>,
+    aig: Aig,
 }
 
 impl IC3 {
@@ -333,11 +333,11 @@ impl IC3 {
                     \n  inputs: {}",
                     frame::LitVecDispaly {
                         lits: &bad,
-                        symbs: &self.symbs,
+                        aig: &self.aig,
                     },
                     frame::LitVecDispaly {
                         lits: &inputs,
-                        symbs: &self.symbs,
+                        aig: &self.aig,
                     },
                 );
                 self.add_obligation(ProofObligation::new(
@@ -365,7 +365,7 @@ impl IC3 {
     pub fn new(
         mut options: Options,
         mut ts: Transys,
-        symbs: GHashMap<Var, String>,
+        aig: Aig,
         pre_lemmas: Vec<LitVec>,
     ) -> Self {
         ts.unique_prime();
@@ -413,7 +413,7 @@ impl IC3 {
             auxiliary_var: Vec::new(),
             bmc_solver: None,
             rng,
-            symbs,
+            aig,
         }
     }
 }
@@ -446,7 +446,7 @@ impl Engine for IC3 {
                     break;
                 }
             }
-            debug!("{}", self.frame.display(&self.symbs));
+            debug!("{}", self.frame.display(&self.aig));
             self.extend();
             debug!("# of pob: {}", self.obligations.len());
             let start = Instant::now();
@@ -534,14 +534,16 @@ impl Engine for IC3 {
             }
 
             let res = {
-                let symbs = &self.symbs;
+                let symbs = &self.aig.symbols;
                 let mut witness = vec![];
                 let mut bad = self.obligations.peak();
                 if let Some(mut b) = bad {
                     let frame: Vec<_> = b.lemma.iter()
                         .map(|lit| {
                             let var = lit.var();
-                            let name = symbs.get(&var).cloned().unwrap_or_else(|| format!("{{{}}}", var));
+                            let name = symbs.get(&(var.0 as usize))
+                                .cloned()
+                                .unwrap_or_else(|| format!("{{{}}}", var));
                             JsonAssign {
                                 name,
                                 value: lit.polarity(),
@@ -556,7 +558,9 @@ impl Engine for IC3 {
                         let frame: Vec<_> = inp.iter()
                             .map(|lit| {
                                 let var = lit.var();
-                                let name = symbs.get(&var).cloned().unwrap_or_else(|| format!("{{{}}}", var));
+                                let name = symbs.get(&(var.0 as usize))
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("{{{}}}", var));
                                 JsonAssign {
                                     name,
                                     value: lit.polarity(),
@@ -580,7 +584,7 @@ impl Engine for IC3 {
                 for lit in b.lemma.iter() {
                     writeln!(&mut res, "  {}", frame::LitDisplay {
                         lit,
-                        symbs: &self.symbs,
+                        aig: &self.aig,
                     }).unwrap();
                 }
                 bad = b.next.take();
@@ -593,7 +597,7 @@ impl Engine for IC3 {
                     for lit in inp.iter() {
                         writeln!(&mut res, "  {}", frame::LitDisplay {
                             lit,
-                            symbs: &self.symbs,
+                            aig: &self.aig,
                         }).unwrap();
                     }
                 }

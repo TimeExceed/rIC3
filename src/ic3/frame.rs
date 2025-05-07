@@ -1,5 +1,6 @@
 use super::{IC3, proofoblig::ProofObligation};
 use crate::transys::TransysCtx;
+use aig::*;
 use giputils::grc::Grc;
 use giputils::hash::{GHashSet, GHashMap};
 use logic_form::{Lemma, Lit, LitSet, LitVec, Var};
@@ -41,35 +42,35 @@ impl DerefMut for FrameLemma {
 }
 
 impl FrameLemma {
-    pub(crate) fn display<'a>(&'a self, symbs: &'a GHashMap<Var, String>) -> FrameLemmaDisplay<'a> {
-        FrameLemmaDisplay { frame_lemma: self, symbs }
+    pub(crate) fn display<'a>(&'a self, aig: &'a Aig) -> FrameLemmaDisplay<'a> {
+        FrameLemmaDisplay { frame_lemma: self, aig }
     }
 }
 
 pub(crate) struct FrameLemmaDisplay<'a> {
     frame_lemma: &'a FrameLemma,
-    symbs: &'a GHashMap<Var, String>,
+    aig: &'a Aig,
 }
 
 impl std::fmt::Display for FrameLemmaDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", LemmaDisplay {
             lemma: &self.frame_lemma.lemma,
-            symbs: self.symbs,
+            aig: self.aig,
         })
     }
 }
 
 pub(crate) struct LemmaDisplay<'a> {
     pub(crate) lemma: &'a Lemma,
-    pub(crate) symbs: &'a GHashMap<Var, String>,
+    pub(crate) aig: &'a Aig,
 }
 
 impl std::fmt::Display for LemmaDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for lit in self.lemma.iter() {
             writeln!(f)?;
-            write!(f, "    {}", LitDisplay { lit, symbs: self.symbs })?;
+            write!(f, "    {}", LitDisplay { lit, aig: self.aig })?;
         }
         Ok(())
     }
@@ -77,14 +78,14 @@ impl std::fmt::Display for LemmaDisplay<'_> {
 
 pub(crate) struct LitVecDispaly<'a> {
     pub(crate) lits: &'a [Lit],
-    pub(crate) symbs: &'a GHashMap<Var, String>,
+    pub(crate) aig: &'a Aig,
 }
 
 impl std::fmt::Display for LitVecDispaly<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for lit in self.lits.iter() {
             writeln!(f)?;
-            write!(f, "    {}", LitDisplay { lit, symbs: self.symbs })?;
+            write!(f, "    {}", LitDisplay { lit, aig: self.aig })?;
         }
         Ok(())
     }
@@ -92,32 +93,98 @@ impl std::fmt::Display for LitVecDispaly<'_> {
 
 pub struct LitDisplay<'a> {
     pub lit: &'a Lit,
-    pub symbs: &'a GHashMap<Var, String>,
+    pub aig: &'a Aig,
 }
 
 impl std::fmt::Display for LitDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt_lit(f, self.symbs, self.lit)?;
+        fmt_lit(f, self.aig, *self.lit)?;
         Ok(())
     }
 }
 
 fn fmt_lit(
     f: &mut std::fmt::Formatter<'_>,
-    symbs: &GHashMap<Var, String>,
-    lit: &Lit,
+    aig: &Aig,
+    lit: Lit,
 ) -> std::fmt::Result {
-    let var = lit.var();
-    if let Some(n) = symbs.get(&var) {
-        write!(f, "{n}")?;
-    } else {
-        write!(f, "{{{}}}", var.0)?;
-    }
+    // let var = lit.var();
+    // if let Some(n) = aig.symbols.get(&(var.0 as usize)) {
+    //     write!(f, "{n}")?;
+    // } else {
+    //     write!(f, "{{{}}}", var.0)?;
+    // }
     if lit.polarity() {
-        write!(f, " <- T")?;
+        fmt_(f, aig, !lit)?;
+        write!(f, " <- ⊤")?;
     } else {
-        write!(f, " <- F")?;
+        fmt_(f, aig, lit)?;
+        write!(f, " <- ⊥")?;
     }
+    Ok(())
+}
+
+fn fmt_(
+    f: &mut std::fmt::Formatter<'_>,
+    aig: &Aig,
+    lit: Lit,
+) -> std::fmt::Result {
+    if lit.polarity() {
+        write!(f, "!(")?;
+        fmt_(f, aig, !lit)?;
+        write!(f, ")")?;
+        return Ok(());
+    }
+    let var: usize = lit.var().into();
+    if let Some(n) = aig.symbols.get(&var) {
+        write!(f, "{n}")?;
+        return Ok(());
+    }
+    if var < aig.latchs.len() + aig.inputs.len() {
+        write!(f, "{{{}}}", var)?;
+        return Ok(());
+    }
+    fmt_aig_node(f, aig, var)?;
+    Ok(())
+}
+
+fn fmt_aig_node(
+    f: &mut std::fmt::Formatter<'_>,
+    aig:&Aig,
+    idx: usize,
+) -> std::fmt::Result {
+    let node = &aig.nodes[idx];
+    match &node.typ {
+        AigNodeType::False => {
+            return write!(f, "⊥");
+        }
+        AigNodeType::Leaf => {
+            if let Some(n) = aig.symbols.get(&idx) {
+                return write!(f, "{n}");
+            }
+            assert!(idx < aig.latchs.len() + aig.inputs.len());
+            return write!(f, "{{{idx}}}");
+        }
+        AigNodeType::And(lhs, rhs) => {
+            write!(f, "(")?;
+            fmt_aig_edge(f, aig, lhs)?;
+            write!(f, ") ∧ (")?;
+            fmt_aig_edge(f, aig, rhs)?;
+            write!(f, ")")?;
+            return Ok(());
+        }
+    }
+}
+
+fn fmt_aig_edge(
+    f: &mut std::fmt::Formatter<'_>,
+    aig:&Aig,
+    edge: &AigEdge,
+) -> std::fmt::Result {
+    if edge.complement {
+        write!(f, "¬")?;
+    }
+    fmt_aig_node(f, aig, edge.id)?;
     Ok(())
 }
 
@@ -148,20 +215,20 @@ impl DerefMut for Frame {
 }
 
 impl Frame {
-    pub(crate) fn display<'a>(&'a self, symbs: &'a GHashMap<Var, String>) -> FrameDisplay<'a> {
-        FrameDisplay { frame: self, symbs }
+    pub(crate) fn display<'a>(&'a self, aig: &'a Aig) -> FrameDisplay<'a> {
+        FrameDisplay { frame: self, aig }
     }
 }
 
 pub(crate) struct FrameDisplay<'a> {
     frame: &'a Frame,
-    symbs: &'a GHashMap<Var, String>,
+    aig: &'a Aig,
 }
 
 impl std::fmt::Display for FrameDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, lemma) in self.frame.lemmas.iter().enumerate() {
-            write!(f, "  lemma {i}: {}", lemma.display(self.symbs))?;
+            write!(f, "  lemma {i}: {}", lemma.display(self.aig))?;
             writeln!(f)?;
         }
         Ok(())
@@ -295,14 +362,14 @@ impl Frames {
         &mut self.frames
     }
 
-    pub(crate) fn display<'a>(&'a self, syms: &'a GHashMap<Var, String>) -> FramesDisplay<'a> {
-        FramesDisplay { frames: self, syms }
+    pub(crate) fn display<'a>(&'a self, aig: &'a Aig) -> FramesDisplay<'a> {
+        FramesDisplay { frames: self, aig }
     }
 }
 
 pub(crate) struct FramesDisplay<'a> {
     frames: &'a Frames,
-    syms: &'a GHashMap<Var, String>,
+    aig: &'a Aig,
 }
 
 impl std::fmt::Display for FramesDisplay<'_> {
@@ -310,7 +377,7 @@ impl std::fmt::Display for FramesDisplay<'_> {
         writeln!(f, "inspect into frames.")?;
         for (i, frame) in self.frames.iter().enumerate() {
             writeln!(f, "frame {i}: {} lemmas", frame.lemmas.len())?;
-            write!(f, "{}", frame.display(self.syms))?;
+            write!(f, "{}", frame.display(self.aig))?;
         }
         Ok(())
     }
