@@ -56,7 +56,7 @@ pub struct Portfolio {
 
 impl Portfolio {
     pub fn new(option: Options) -> Self {
-        let temp_dir = tempfile::TempDir::new_in("/tmp/rIC3/").unwrap();
+        let temp_dir = tempfile::Builder::new().prefix("rIC3.").tempdir().unwrap();
         let temp_dir_path = temp_dir.path();
         let mut engines = Vec::new();
         let mut new_engine = |args: &str| {

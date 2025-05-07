@@ -167,7 +167,7 @@ impl Transys {
             }
         }
         let bad = aig.bads[0].to_lit();
-        let rel = aig.get_cnf();
+        let rel = aig.cnf(false);
         Self {
             input,
             latch,
