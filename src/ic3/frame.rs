@@ -2,8 +2,8 @@ use super::{IC3, proofoblig::ProofObligation};
 use crate::transys::TransysCtx;
 use aig::*;
 use giputils::grc::Grc;
-use giputils::hash::{GHashSet, GHashMap};
-use logic_form::{Lemma, Lit, LitSet, LitVec, Var};
+use giputils::hash::GHashSet;
+use logic_form::*;
 use satif::Satif;
 use std::ops::{Deref, DerefMut};
 
