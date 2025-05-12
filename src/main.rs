@@ -11,7 +11,6 @@ use rIC3::{
     options::{self, Options},
     portfolio::portfolio_main,
     transys::Transys,
-    certificate,
 };
 use jiff::Timestamp;
 use log::*;
@@ -94,15 +93,15 @@ fn raw_main(mut options: Options) -> Option<bool> {
         options.certify = false;
         aig.compress_property();
     }
-    let raw_aig = &aig;
-    let (aig, restore) = aig_preprocess(&raw_aig, &options);
-    let symbs = build_symbols(&raw_aig, &restore);
-    let ts = Transys::from_aig(&aig, &restore);
+    let old_aig = &aig;
+    let (mut new_aig, restore) = aig_preprocess(&old_aig, &options);
+    update_symbols(&mut new_aig, old_aig, &restore);
+    let ts = Transys::from_aig(&new_aig, &restore);
     if options.preprocess.sec {
         panic!("sec not support");
     }
     let mut engine: Box<dyn Engine> = match options.engine {
-        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, symbs, vec![])),
+        options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, new_aig, vec![])),
         options::Engine::Kind => Box::new(Kind::new(options.clone(), ts)),
         options::Engine::BMC => Box::new(BMC::new(options.clone(), ts)),
         _ => unreachable!(),
@@ -129,7 +128,7 @@ fn raw_main(mut options: Options) -> Option<bool> {
             if !options.json_output {
                 println!("result: safe");
             }
-            certificate(&mut engine, &aig, &options, true);
+            // certificate(&mut engine, &new_aig, &options, true);
         }
         Some(false) => {
             if options.json_output {
@@ -138,7 +137,7 @@ fn raw_main(mut options: Options) -> Option<bool> {
                 println!("result: unsafe");
                 println!("{}", engine.witness(&origin_aig));
             }
-            certificate(&mut engine, &aig, &options, false);
+            // certificate(&mut engine, &new_aig, &options, false);
         }
         _ => {
             println!("result: unknown");
@@ -176,15 +175,17 @@ impl logforth::Layout for MyLayout {
 
 static SESSION_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-fn build_symbols(aig: &Aig, var_map: &GHashMap<Var, Var>) -> GHashMap<Var, String> {
-    let raw_symbs = &aig.symbols;
-    let mut res = GHashMap::new();
-    for (new_var, old_var) in var_map.iter() {
-        let old_var: usize = (*old_var).into();
-        if let Some(n) = raw_symbs.get(&old_var) {
-            res.insert(*new_var, n.clone());
+fn update_symbols(new_aig: &mut Aig, old_aig: &Aig, var_map: &GHashMap<Var, Var>) {
+    let mut new_symbs = {
+        let raw_symbs = &old_aig.symbols;
+        let mut res = GHashMap::new();
+        for (new_var, old_var) in var_map.iter() {
+            let old_var: usize = (*old_var).into();
+            if let Some(n) = raw_symbs.get(&old_var) {
+                res.insert(new_var.0 as usize, n.clone());
+            }
         }
-    }
-    res
+        res
+    };
+    std::mem::swap(&mut new_symbs, &mut new_aig.symbols);
 }
-
