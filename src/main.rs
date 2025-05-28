@@ -13,7 +13,6 @@ use rIC3::{
     transys::Transys,
 };
 use jiff::Timestamp;
-use log::*;
 use giputils::hash::GHashMap;
 use logic_form::*;
 
@@ -50,7 +49,7 @@ fn main() {
     }
 }
 
-fn raw_main(mut options: Options) -> Option<bool> {
+fn raw_main(options: Options) -> Option<bool> {
     let mut aig = match options.model.extension() {
         Some(ext) if (ext == "btor") | (ext == "btor2") => panic!(
             "rIC3 currently does not support parsing BTOR2 files. Please use btor2aiger (https://github.com/hwmcc/btor2tools) to first convert them to AIG format."
@@ -75,24 +74,8 @@ fn raw_main(mut options: Options) -> Option<bool> {
     }
 
     let origin_aig = aig.clone();
-    if aig.bads.is_empty() {
-        println!("warning: no property to be checked");
-        if let Some(certificate) = &options.certificate {
-            aig.to_file(certificate.to_str().unwrap(), true);
-        }
-        return Some(true);
-    } else if aig.bads.len() > 1 {
-        if options.certify {
-            panic!(
-                "Error: Multiple properties detected. Cannot compress properties when certification is enabled."
-            );
-        }
-        warn!(
-            "Warning: Multiple properties detected. rIC3 has compressed them into a single property."
-        );
-        options.certify = false;
-        aig.compress_property();
-    }
+    assert!(options.index < aig.bads.len(),
+        "--index {}, # of bads: {}", options.index, aig.bads.len());
     let old_aig = &aig;
     let (mut new_aig, restore) = aig_preprocess(&old_aig, &options);
     update_symbols(&mut new_aig, old_aig, &restore);

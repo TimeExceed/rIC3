@@ -60,6 +60,9 @@ pub struct Options {
     /// outputs in json format.
     #[arg(long="json-output")]
     pub json_output: bool,
+
+    #[arg(long)]
+    pub index: usize,
 }
 
 #[derive(Copy, Clone, ValueEnum, Debug)]
