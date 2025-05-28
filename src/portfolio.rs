@@ -79,6 +79,8 @@ impl Portfolio {
             if option.preprocess.no_abc {
                 engine.arg("--no-abc");
             }
+            engine.arg("--index");
+            engine.arg(format!("{}", option.index));
 
             engines.push(engine);
         };
