@@ -115,10 +115,11 @@ fn raw_main(options: Options) -> Option<bool> {
         }
         Some(false) => {
             if options.json_output {
-                println!("{}", engine.witness(&origin_aig));
+                // println!("{}", engine.witness(&origin_aig));
+                println!("[]");
             } else {
                 println!("result: unsafe");
-                println!("{}", engine.witness(&origin_aig));
+                // println!("{}", engine.witness(&origin_aig));
             }
             // certificate(&mut engine, &new_aig, &options, false);
         }
